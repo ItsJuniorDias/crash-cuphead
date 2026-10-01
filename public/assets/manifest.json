@@ -232,19 +232,19 @@
   "cloud1Night": {
     "file": "cloud1Night.png",
     "kind": "object",
-    "width": 557,
-    "height": 376,
+    "width": 542,
+    "height": 360,
     "flop": false,
     "model": "google/gemini-2.5-flash-image",
-    "generatedAt": "2026-10-01T23:23:15.055Z"
+    "generatedAt": "2026-10-01T23:27:14.215Z"
   },
   "cloud2Night": {
     "file": "cloud2Night.png",
     "kind": "object",
     "width": 646,
-    "height": 469,
+    "height": 460,
     "flop": false,
     "model": "google/gemini-2.5-flash-image",
-    "generatedAt": "2026-10-01T23:23:29.054Z"
+    "generatedAt": "2026-10-01T23:27:15.029Z"
   }
 }

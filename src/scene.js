@@ -530,6 +530,7 @@ export class World {
       this.pts[i][1] = Y(Math.min(m, multiplierAt(s)));
     }
     this.fillRibbon.fill(this.pts, g.bottom);
+    this.fillRibbon.mesh.material.opacity = 0.18 * (1 - 0.65 * smoothstep(this.tod, 0.5, 1));   // à noite o vermelho vira um facho rosa
     this.inkRibbon.stroke(this.pts, 0.2);
     this.lineRibbon.stroke(this.pts, 0.1);
     this.lineRibbon.mesh.material.color.set(game.phase === 'crashed' ? C.redDark : C.red);

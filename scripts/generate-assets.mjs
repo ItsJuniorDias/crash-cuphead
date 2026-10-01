@@ -63,6 +63,7 @@ const BACKGROUND = {
 // A ordem importa: gere o avião primeiro e use-o como --ref para manter o estilo coeso.
 // ref: false = não manda a referência (o modelo tende a copiar o avião para dentro de cenários).
 // base: 'sky' = repinta a imagem crua desse asset (mesma composição, outra luz) — usado no ciclo dia → noite.
+// halo: true = remove brilho pintado por fora do contorno de tinta (removeBackground, passo 4b).
 const ASSETS = [
   { name: 'plane', bg: 'object', aspect: '4:3', prompt: 'A cheerful cartoon biplane seen exactly from the side, flying toward the RIGHT: the nose and propeller are on the RIGHT side of the image and the tail is on the LEFT side. Brick-red fuselage, cream wings with wooden struts, a round mustard-yellow nose spinner cap at the very front and NO propeller blades at all (the propeller is animated separately). A small goofy pilot with a leather cap, round goggles, pie-cut eyes and a huge grin, a yellow scarf fluttering backwards.' },
   { name: 'propeller', bg: 'object', aspect: '9:16', prompt: 'A single two-blade wooden airplane propeller seen exactly from the SIDE, standing perfectly vertical: two long narrow varnished-wood blades with rounded tips, one pointing straight up and one straight down, joined by a small round mustard-yellow hub in the middle. Only the propeller, no airplane.' },
@@ -91,7 +92,7 @@ const ASSETS = [
     prompt: 'the same scenery at night, lit by moonlight: deep blue, slate and dark teal tones with soft pale-blue highlights along the top edges, windows and lamps may glow warm yellow.',
   })),
   ...['cloud1', 'cloud2'].map((n) => ({
-    name: `${n}Night`, bg: 'object', aspect: '4:3', base: n,
+    name: `${n}Night`, bg: 'object', aspect: '4:3', base: n, halo: true,   // o luar vem com brilho por fora do contorno
     prompt: 'the same cloud at night: dim blue-grey lit by moonlight, with a soft pale-blue rim, same face if it has one.',
   })),
 ];
@@ -296,7 +297,7 @@ async function generate(prompt, aspect, refDataUrl) {
 async function finish(asset, raw, outFile, model, cost) {
   // --flop/--no-flop decide; sem a flag, o --rekey mantém o que já estava e uma imagem nova vem sem espelhar
   const flop = opts.flop ?? (opts.rekey || opts.edit ? manifest[asset.name]?.flop : false) ?? false;
-  let image = asset.bg === 'opaque' ? await sharp(raw).png().toBuffer() : await removeBackground(raw, asset.bg);
+  let image = asset.bg === 'opaque' ? await sharp(raw).png().toBuffer() : await removeBackground(raw, asset.bg, { halo: asset.halo });
   if (flop) image = await sharp(image).flop().png({ compressionLevel: 9 }).toBuffer();
   const meta = await sharp(image).metadata();
   await writeFile(path.join(OUT_DIR, outFile), image);
@@ -400,7 +401,7 @@ async function writePropellerFrames(png) {
  *    apagaria partes do desenho.
  * 4. Bordas: pixels encostados no fundo ganham alfa parcial (antisserrilhado) e perdem o tom magenta.
  */
-async function removeBackground(input, kind) {
+async function removeBackground(input, kind, { halo = false } = {}) {
   const { data, info } = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const { width: w, height: h } = info;
   const N = w * h;
@@ -470,6 +471,34 @@ async function removeBackground(input, kind) {
       const m = Math.min(data[i], data[i + 2]) - data[i + 1];   // excesso de magenta
       if (m > 0) { data[i] -= m; data[i + 2] -= m; }
     }
+  }
+
+  // 4b. halo (opcional): brilho que o modelo pinta POR FORA do contorno de tinta (ex.: luar nas nuvens)
+  //     e que, misturado ao magenta, vira uma borda acinzentada. Remove o que for mais claro que a tinta
+  //     e estiver ligado ao fundo, numa faixa estreita: a tinta segura a expansão para dentro do desenho.
+  if (halo) {
+    const RADIUS = Math.max(6, Math.round(Math.max(w, h) * 0.03));
+    const luma = (i) => 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    const depth = new Int16Array(N).fill(-1);
+    let queue = [];
+    for (let p = 0; p < N; p++) if (data[p * 4 + 3] === 0) { depth[p] = 0; queue.push(p); }
+    let removed = 0;
+    for (let d = 1; d <= RADIUS && queue.length; d++) {
+      const next = [];
+      for (const p of queue) {
+        const x = p % w;
+        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, p >= w ? p - w : -1, p < N - w ? p + w : -1]) {
+          if (q < 0 || depth[q] !== -1) continue;
+          const i = q * 4;
+          if (data[i + 3] === 0) { depth[q] = 0; continue; }
+          if (luma(i) < 75) { depth[q] = -2; continue; }   // tinta: para aqui
+          depth[q] = d; data[i + 3] = 0; removed++;
+          next.push(q);
+        }
+      }
+      queue = next;
+    }
+    if (removed) console.log(`\n  halo: ${removed} px de brilho fora do contorno removidos`);
   }
 
   // 5. magenta forte que sobrou no meio do desenho (ex.: fundo "visto" através de um vidro).
