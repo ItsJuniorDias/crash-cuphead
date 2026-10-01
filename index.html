@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Biplane Bonanza</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Biplane Bonanza</h1>
+      <div class="tag">~ A 1930s Flying Spectacular ~ cash out before the old crate goes down! ~</div>
+    </header>
+
+    <div class="card history" id="history"></div>
+
+    <div class="grid">
+      <div class="card stage" id="stage">
+        <div class="toast" id="toast"></div>
+        <div class="loading" id="loading">Rewinding the reel…</div>
+      </div>
+
+      <div class="card panel">
+        <div class="bal"><span>Balance</span><b id="balance">0</b></div>
+        <div>
+          <label for="bet">Bet</label>
+          <input type="number" id="bet" min="1" step="1" value="10">
+          <div class="row">
+            <button class="mini" data-q="half">½</button>
+            <button class="mini" data-q="double">2×</button>
+            <button class="mini" data-q="10">+10</button>
+            <button class="mini" data-q="100">+100</button>
+          </div>
+        </div>
+        <div>
+          <label for="auto">Auto cash-out</label>
+          <input type="number" id="auto" min="1.01" step="0.01" value="2.00">
+          <label class="check"><input type="checkbox" id="autoOn"> enable auto cash-out</label>
+        </div>
+        <button id="main">PLACE BET</button>
+        <div class="players">
+          <h3>In the grandstand</h3>
+          <div id="players"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      <span>Demo credits, no real money. House edge: 3%. Space = bet/cash out.</span>
+      <span>
+        <button id="mute">🔊 Sound</button>
+        <button id="reset">Refill 1,000</button>
+      </span>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

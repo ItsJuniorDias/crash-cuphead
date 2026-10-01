@@ -1,0 +1,250 @@
+{
+  "plane": {
+    "file": "plane.png",
+    "kind": "object",
+    "width": 621,
+    "height": 343,
+    "flop": true,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:23.809Z",
+    "propeller": {
+      "u": 0.9243,
+      "v": 0.465
+    }
+  },
+  "propeller": {
+    "file": "propeller.png",
+    "kind": "object",
+    "width": 110,
+    "height": 1040,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:09:47.918Z",
+    "frames": [
+      "propeller_0.png",
+      "propeller_1.png",
+      "propeller_2.png",
+      "propeller_3.png",
+      "propeller_4.png",
+      "propeller_5.png",
+      "propeller_6.png",
+      "propeller_7.png"
+    ]
+  },
+  "sky": {
+    "file": "sky.png",
+    "kind": "opaque",
+    "width": 1344,
+    "height": 768,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:24.592Z"
+  },
+  "sun": {
+    "file": "sun.png",
+    "kind": "object",
+    "width": 450,
+    "height": 451,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:25.062Z"
+  },
+  "cloud1": {
+    "file": "cloud1.png",
+    "kind": "object",
+    "width": 543,
+    "height": 362,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:25.672Z"
+  },
+  "cloud2": {
+    "file": "cloud2.png",
+    "kind": "object",
+    "width": 646,
+    "height": 460,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:26.308Z"
+  },
+  "mountains": {
+    "file": "mountains.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 405,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:26.963Z"
+  },
+  "hills": {
+    "file": "hills.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 479,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:27.639Z"
+  },
+  "trees": {
+    "file": "trees.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 302,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:12:27.268Z"
+  },
+  "ground": {
+    "file": "ground.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 269,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:28.558Z"
+  },
+  "foreground": {
+    "file": "foreground.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 395,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:29.100Z"
+  },
+  "kaboom": {
+    "file": "kaboom.png",
+    "kind": "object",
+    "width": 728,
+    "height": 478,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:29.461Z"
+  },
+  "coin": {
+    "file": "coin.png",
+    "kind": "object",
+    "width": 497,
+    "height": 490,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:29.809Z"
+  },
+  "smoke": {
+    "file": "smoke.png",
+    "kind": "object",
+    "width": 513,
+    "height": 462,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:06:30.148Z"
+  },
+  "skyDusk": {
+    "file": "skyDusk.png",
+    "kind": "opaque",
+    "width": 1344,
+    "height": 768,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:20:58.662Z"
+  },
+  "skyNight": {
+    "file": "skyNight.png",
+    "kind": "opaque",
+    "width": 1344,
+    "height": 768,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:21:10.459Z"
+  },
+  "sunDusk": {
+    "file": "sunDusk.png",
+    "kind": "object",
+    "width": 450,
+    "height": 451,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:21:22.217Z"
+  },
+  "moon": {
+    "file": "moon.png",
+    "kind": "object",
+    "width": 493,
+    "height": 540,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:21:32.417Z"
+  },
+  "star": {
+    "file": "star.png",
+    "kind": "object",
+    "width": 620,
+    "height": 587,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:21:46.939Z"
+  },
+  "mountainsNight": {
+    "file": "mountainsNight.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 405,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:22:03.760Z"
+  },
+  "hillsNight": {
+    "file": "hillsNight.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 479,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:22:20.857Z"
+  },
+  "treesNight": {
+    "file": "treesNight.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 310,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:22:38.839Z"
+  },
+  "groundNight": {
+    "file": "groundNight.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 269,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:22:51.936Z"
+  },
+  "foregroundNight": {
+    "file": "foregroundNight.png",
+    "kind": "strip",
+    "width": 1536,
+    "height": 403,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:23:03.471Z"
+  },
+  "cloud1Night": {
+    "file": "cloud1Night.png",
+    "kind": "object",
+    "width": 557,
+    "height": 376,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:23:15.055Z"
+  },
+  "cloud2Night": {
+    "file": "cloud2Night.png",
+    "kind": "object",
+    "width": 646,
+    "height": 469,
+    "flop": false,
+    "model": "google/gemini-2.5-flash-image",
+    "generatedAt": "2026-10-01T23:23:29.054Z"
+  }
+}

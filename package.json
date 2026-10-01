@@ -1,0 +1,21 @@
+{
+  "name": "biplane-bonanza",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "assets": "node scripts/generate-assets.mjs",
+    "assets:all": "node scripts/generate-assets.mjs plane && node scripts/generate-assets.mjs --skip plane --ref art/raw/plane.png",
+    "assets:plane-no-prop": "node scripts/generate-assets.mjs plane --edit \"Remove the propeller blades and their motion blur completely, keeping only the round nose spinner cap at the front.\""
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.5",
+    "vite": "^8.3.2"
+  }
+}
