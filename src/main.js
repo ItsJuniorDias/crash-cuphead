@@ -29,7 +29,15 @@ async function main() {
   });
 
   game.start();
-  if (import.meta.env.DEV) window.__bb = { game, world, textures };   // inspeção no console (só em dev)
+  if (import.meta.env.DEV) window.__bb = { game, world, textures, sfx };   // inspeção no console (só em dev)
+
+  // ?audiodebug na URL: mostra o estado do áudio na tela (útil para testar no celular)
+  if (new URLSearchParams(location.search).has('audiodebug')) {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9;background:#000;color:#7f7;font:12px monospace;padding:4px 8px;border-radius:4px';
+    document.body.append(el);
+    setInterval(() => { el.textContent = `áudio: ${sfx.state}${sfx.muted ? ' (mudo)' : ''}`; }, 300);
+  }
 
   let last = performance.now();
   world.renderer.setAnimationLoop((now) => {

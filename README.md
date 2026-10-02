@@ -9,6 +9,14 @@ npm install
 npm run dev
 ```
 
+### No celular
+
+```bash
+npm run dev:mobile
+```
+
+Abra no celular o endereço "Network" que o Vite mostrar (mesma rede Wi-Fi). O som destrava no primeiro toque na tela e toca mesmo com o iPhone no modo silencioso. Para depurar, acrescente `?audiodebug` na URL: o estado do áudio aparece no canto da tela (`running` = ok).
+
 ## Gerar a arte (OpenRouter + Nano Banana / Gemini 2.5 Flash Image)
 
 ```bash
