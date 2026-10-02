@@ -6,12 +6,16 @@ import { Sfx } from './audio.js';
 import { Hud, fmt } from './ui.js';
 
 async function main() {
+  // O som vem antes de tudo: começa a baixar/decodificar junto com as texturas e já destrava
+  // no primeiro toque, mesmo que ele aconteça na tela de carregamento.
+  const sfx = new Sfx();
+  showAudioDebug(sfx);
+
   // As texturas de texto são desenhadas em canvas, então as fontes precisam estar prontas.
   await Promise.all([document.fonts.load('48px Rye'), document.fonts.load('16px "Special Elite"')]).catch(() => {});
   const textures = await loadTextures();
 
   const game = new Game();
-  const sfx = new Sfx();
   const world = new World(document.getElementById('stage'), textures);
   const hud = new Hud(game, sfx);
   document.getElementById('loading').remove();
@@ -31,14 +35,6 @@ async function main() {
   game.start();
   if (import.meta.env.DEV) window.__bb = { game, world, textures, sfx, hud };   // inspeção no console (só em dev)
 
-  // ?audiodebug na URL: mostra o estado do áudio na tela (útil para testar no celular)
-  if (new URLSearchParams(location.search).has('audiodebug')) {
-    const el = document.createElement('div');
-    el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9;background:#000;color:#7f7;font:12px monospace;padding:4px 8px;border-radius:4px';
-    document.body.append(el);
-    setInterval(() => { el.textContent = `áudio: ${sfx.state}${sfx.muted ? ' (mudo)' : ''}`; }, 300);
-  }
-
   let last = performance.now();
   world.renderer.setAnimationLoop((now) => {
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -48,6 +44,15 @@ async function main() {
     hud.update();
     sfx.update(game, world.tod);
   });
+}
+
+/** ?audiodebug na URL: mostra o estado do áudio na tela (útil para testar no celular). */
+function showAudioDebug(sfx) {
+  if (!new URLSearchParams(location.search).has('audiodebug')) return;
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9;background:#000;color:#7f7;font:12px monospace;padding:4px 8px;border-radius:4px';
+  document.body.append(el);
+  setInterval(() => { el.textContent = `áudio: ${sfx.state}${sfx.muted ? ' (mudo)' : ''}`; }, 300);
 }
 
 main().catch((err) => {

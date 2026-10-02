@@ -152,7 +152,7 @@ Para **trocar** um som: substitua em `art/audio-src/` o arquivo indicado no camp
 
 O script corta silêncios, normaliza o volume, monta loops sem emenda e grava o volume real no manifest (o jogo compensa o que o limitador tirar). O mix fica em `MIX`, em [`src/audio.js`](src/audio.js).
 
-No celular, o áudio é feito para não dar problema: destrava no primeiro toque em qualquer lugar, toca no modo silencioso do iPhone, devolve o áudio do aparelho quando o jogo está no mudo (sua música de outro app volta a tocar), descarta sons enquanto o sistema interrompe o áudio (em vez de tocar tudo junto depois) e toca as músicas em streaming para economizar memória.
+No celular, o áudio é feito para não dar problema: os sons já baixam e decodificam enquanto o jogo carrega, destrava no primeiro toque em qualquer lugar (até na tela de carregamento) e sai nesse mesmo toque, toca no modo silencioso do iPhone, devolve o áudio do aparelho quando o jogo está no mudo (sua música de outro app volta a tocar), descarta sons enquanto o sistema interrompe o áudio (em vez de tocar tudo junto depois) e toca as músicas em streaming para economizar memória.
 
 > [!NOTE]
 > As músicas estão registradas no Content ID do YouTube. Isso não afeta o jogo, mas trailers e gameplays postados lá podem receber reivindicação automática (contestável com a licença do Pixabay).

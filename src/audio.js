@@ -4,6 +4,10 @@
 // Celular:
 // - iOS/Android só liberam áudio dentro de um gesto (soltar o toque/clique/tecla). Destravamos no
 //   primeiro gesto em QUALQUER lugar da página e retomamos sempre que o sistema suspender o áudio.
+// - O AudioContext nasce no carregamento (suspenso até o primeiro gesto) e os sons já são baixados e
+//   decodificados antes do primeiro toque: assim o som sai nesse mesmo toque, sem esperar decodificar.
+// - Todo gesto refaz o que o sistema recusou antes (retomar o áudio, dar play na música): um toque
+//   cujo primeiro evento não valeu como gesto (ex.: pointerup no iOS) não deixa a música muda.
 // - No iPhone, a chave de silêncio corta o Web Audio. Pedimos a sessão de "reprodução"
 //   (navigator.audioSession, iOS 17+) ou, nos mais antigos, tocamos um <audio> mudo em loop.
 //   No mudo do jogo a sessão é devolvida, para não interromper a música de outros apps.
@@ -27,6 +31,7 @@ const MUSIC_FADE = 1.5;     // segundos de cross-fade entre uma faixa e a próxi
 const PLAYLISTS = { day: ['musicDay', 'musicDay2'], night: ['musicNight'] };
 const LOOP_FADE = 0.03;     // segundos de cross-fade aplicados na emenda dos loops, já decodificados
 const MAX_BOOST = 1.4;      // compensação máxima quando o limitador deixou um som abaixo do alvo
+const RESUME_WINDOW = 500;  // ms em que os sons de um toque contam como "tocando" enquanto o áudio liga
 
 const smoothstep = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -40,14 +45,16 @@ export class Sfx {
   #buffers = new Map();      // nome → AudioBuffer pronto
   #gains = new Map();        // nome → compensação de volume vinda do manifest
   #loops = {};               // nome → { src, gain } tocando
-  #lanes = {};               // playlist → { gain, players: [{ el, fade }], tracks, slot, i, token }
+  #lanes = {};               // playlist → { gain, players: [{ el, fade, blessed }], tracks, slot, i, token }
   #synthEngine = null;
-  #primed = false;
-  #resuming = false;
+  #resuming = null;          // promessa do resume() pedido dentro de um gesto, enquanto não termina
   #media = null;
   #owlDone = false;
 
   constructor() {
+    this.#create();   // suspenso até o primeiro gesto, mas já decodifica os sons
+    // aberta numa aba em segundo plano, onde o navegador libere som sem gesto: fica quieta até aparecer
+    if (document.hidden) this.#ctx?.suspend().catch(() => {});
     const onGesture = () => this.unlock();
     for (const type of GESTURES) window.addEventListener(type, onGesture, { capture: true, passive: true });
     document.addEventListener('visibilitychange', () => this.#onVisibility());
@@ -57,43 +64,48 @@ export class Sfx {
   get muted() { return this.#muted; }
   set muted(value) {
     this.#muted = value;
-    if (this.#master) this.#master.gain.setTargetAtTime(value ? 0 : 1, this.#ctx.currentTime, 0.02);
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    this.#master.gain.setTargetAtTime(value ? 0 : 1, ctx.currentTime, 0.02);
     if (value) {
       // devolve o áudio do aparelho: a música de outros apps volta a tocar
       this.#media?.pause();
       try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch { /* iOS < 17 */ }
-    } else if (this.#ctx) {
+    } else {
       this.#playThroughSilentSwitch();   // o des-mudo vem de um clique, então estamos num gesto
-      this.#resume();
+      this.#resume(true);
     }
+    this.#syncMusic();
   }
 
   /** Estado do áudio, para depuração (`?audiodebug` na URL mostra na tela). */
   get state() {
     if (!this.#ctx) return 'sem contexto';
     const total = Object.values(this.#manifest).filter((e) => e.kind !== 'music').length;
-    const lanes = Object.keys(this.#lanes).length;
-    return `${this.#ctx.state} · ${this.#buffers.size}/${total} sons · música ${lanes ? 'tocando' : '—'}`;
+    const lanes = Object.values(this.#lanes);
+    const music = !lanes.length ? '—' : lanes.some((L) => !L.players[1 - L.slot].el.paused) ? 'tocando' : 'pausada';
+    return `${this.#ctx.state} · ${this.#buffers.size}/${total} sons · música ${music}`;
   }
 
   /** Precisa rodar dentro de um gesto do usuário; pode ser chamado quantas vezes for. */
   unlock() {
     try {
-      if (!this.#ctx) this.#create();
+      if (!this.#ctx) { this.#create(); this.#decodeAll(); }
       const ctx = this.#ctx;
       if (!ctx) return;
-      this.#resume();
-      if (!this.#primed) {
+      // a sessão de "reprodução" (chave de silêncio do iPhone) vem antes de o áudio voltar a rodar
+      if (!this.#muted) this.#playThroughSilentSwitch();
+      if (ctx.state !== 'running') {
+        this.#resume(true);
         // iOS: tocar um buffer vazio dentro do gesto destrava a saída de som
         const src = ctx.createBufferSource();
         src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
         src.connect(ctx.destination);
         src.start(0);
-        this.#primed = true;
       }
-      if (!this.#muted) this.#playThroughSilentSwitch();
-      this.#startMusic();   // <audio> só pode começar dentro de um gesto
-      this.#decodeAll();
+      this.#startMusic();
+      this.#syncMusic();    // <audio> só pode começar dentro de um gesto
+      this.#decodeAll();    // tenta de novo o que não decodificou
     } catch { /* sem áudio */ }
   }
 
@@ -148,7 +160,10 @@ export class Sfx {
   #create() {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
-    const ctx = new AC();
+    let ctx;
+    try { ctx = new AC(); } catch { return; }   // sem áudio (o próximo gesto tenta de novo)
+    // o sistema suspendeu/interrompeu ou liberou o áudio: a música acompanha
+    ctx.addEventListener?.('statechange', () => this.#syncMusic());
     // limitador de segurança no fim da cadeia: vários sons fortes juntos não estouram
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20;
@@ -165,17 +180,29 @@ export class Sfx {
     this.#master = master;
   }
 
-  #resume() {
+  /**
+   * Retoma o áudio. Só um pedido feito dentro de um gesto (fromGesture) faz os sons desse toque
+   * contarem como "tocando"; fora de gesto o sistema pode recusar, e aí eles seriam acumulados.
+   */
+  #resume(fromGesture = false) {
     const ctx = this.#ctx;
-    if (!ctx || ctx.state === 'running') return;
-    this.#resuming = true;
-    ctx.resume().catch(() => {}).finally(() => { this.#resuming = false; });
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    const p = Promise.resolve(ctx.resume()).catch(() => {});   // chamado já, ainda dentro do gesto
+    // um evento que não vale como gesto (rolagem da página, Esc/Shift) não conta
+    if (!fromGesture || navigator.userActivation?.isActive === false) return;
+    // cada gesto tem a sua tentativa: o fim de uma anterior (recusada) não derruba a atual. E com
+    // prazo: um resume() que o navegador não libera não falha, fica pendente para sempre, e sem
+    // prazo os sons iriam se acumulando no relógio parado e tocariam todos juntos no próximo toque
+    this.#resuming = p;
+    const clear = () => { if (this.#resuming === p) this.#resuming = null; };
+    p.finally(clear);
+    setTimeout(clear, RESUME_WINDOW);
   }
 
   /** Áudio tocando (ou destravando neste gesto). Fora disso, sons de jogo são descartados. */
   #live() {
     const ctx = this.#ctx;
-    return !!ctx && (ctx.state === 'running' || this.#resuming);
+    return !!ctx && (ctx.state === 'running' || this.#resuming !== null);
   }
 
   async #prefetch() {
@@ -184,6 +211,9 @@ export class Sfx {
       // o limitador pode ter deixado o arquivo abaixo do alvo: compensa no volume (com teto)
       if (e.lufs > -60 && Number.isFinite(e.target)) this.#gains.set(name, Math.min(MAX_BOOST, 10 ** ((e.target - e.lufs) / 20)));
     }
+    // a primeira faixa já vai sendo carregada; se o áudio foi destravado antes de a lista chegar, começa agora
+    this.#startMusic();
+    this.#syncMusic();
     // efeitos e loops são baixados e decodificados; músicas vão em streaming (só a URL)
     await Promise.all(Object.entries(this.#manifest).filter(([, e]) => e.kind !== 'music').map(async ([name, entry]) => {
       try {
@@ -192,6 +222,8 @@ export class Sfx {
       } catch { /* esse som fica com a versão sintetizada */ }
     }));
     this.#decodeAll();
+    // motor sintetizado só se o gravado não veio (nem baixado, nem decodificado)
+    if (this.#ctx && !this.#raw.has('engine') && !this.#buffers.has('engine') && !this.#synthEngine) this.#startSynthEngine();
   }
 
   #decodeAll() {
@@ -209,9 +241,6 @@ export class Sfx {
         })
         .catch(() => { item.decoding = false; });
     }
-    // motor sintetizado só se não existir motor gravado (nem baixado, nem decodificado)
-    const hasEngine = this.#raw.has('engine') || this.#buffers.has('engine') || this.#manifest.engine;
-    if (!hasEngine && !this.#synthEngine) this.#startSynthEngine();
   }
 
   #startLoop(name) {
@@ -233,10 +262,12 @@ export class Sfx {
 
   /**
    * Cada playlist tem dois <audio> que se revezam (um sai enquanto o outro entra, com cross-fade).
-   * Os dois são "abençoados" com play() dentro do gesto: depois disso o iOS deixa trocar de faixa sozinho.
+   * Criados assim que a lista de sons chega (a primeira faixa já vai carregando); o play() fica com
+   * o #syncMusic, que só toca com o áudio liberado.
    */
   #startMusic() {
     const ctx = this.#ctx;
+    if (!ctx) return;
     for (const [lane, names] of Object.entries(PLAYLISTS)) {
       const tracks = names.filter((n) => this.#manifest[n]);
       if (this.#lanes[lane] || !tracks.length) continue;
@@ -250,17 +281,45 @@ export class Sfx {
         const fade = ctx.createGain();
         fade.gain.value = 0;
         ctx.createMediaElementSource(el).connect(fade).connect(gain);
-        return { el, fade };
+        return { el, fade, blessed: false };
       });
-      const L = { gain, players, tracks, slot: 0, i: 0, token: null };
-      this.#lanes[lane] = L;
-      // abençoa o segundo player agora (gesto) e começa a primeira faixa no primeiro
-      const spare = players[1].el;
-      spare.src = `${AUDIO_DIR}${this.#manifest[tracks[tracks.length > 1 ? 1 : 0]].file}`;
-      spare.play().then(() => spare.pause()).catch(() => {});
+      this.#lanes[lane] = { gain, players, tracks, slot: 0, i: 0, token: null };
       this.#nextTrack(lane);
     }
   }
+
+  /** Música só com o som ligado, a página visível e o áudio liberado. */
+  #musicOn() {
+    return !this.#muted && !document.hidden && this.#live();
+  }
+
+  /**
+   * Dá play (ou pausa) na faixa atual de cada playlist conforme #musicOn. Pausada, o iOS devolve o
+   * áudio do aparelho. Chamado a cada gesto: o que o sistema recusou antes é tentado de novo.
+   */
+  #syncMusic() {
+    const on = this.#musicOn();
+    for (const L of Object.values(this.#lanes)) {
+      const current = L.players[1 - L.slot], spare = L.players[L.slot];   // slot já aponta para o próximo
+      if (!on) { current.el.pause(); continue; }
+      if (current.el.paused) this.#playEl(current);
+      // iOS: um <audio> que já tocou dentro de um gesto pode depois trocar de faixa sozinho.
+      // O reserva toca mudo (fade em 0) e pausa assim que começar.
+      if (!spare.blessed && spare.el.paused) {
+        if (!spare.el.getAttribute('src')) spare.el.src = this.#trackUrl(L.tracks[L.i % L.tracks.length]);
+        this.#playEl(spare, true);
+      }
+    }
+  }
+
+  #playEl(player, thenPause = false) {
+    player.el.play().then(() => {
+      player.blessed = true;
+      if (thenPause) player.el.pause();
+    }, () => { /* recusado: o próximo gesto tenta de novo */ });
+  }
+
+  #trackUrl(name) { return `${AUDIO_DIR}${this.#manifest[name].file}`; }
 
   #nextTrack(lane) {
     const ctx = this.#ctx, L = this.#lanes[lane];
@@ -268,8 +327,8 @@ export class Sfx {
     L.slot = 1 - L.slot;
     const name = L.tracks[L.i++ % L.tracks.length];
     const { el, fade } = incoming;
-    el.src = `${AUDIO_DIR}${this.#manifest[name].file}`;   // trocar o src já recomeça do início
-    el.play().catch(() => {});   // se o sistema recusar, o próximo gesto/visibilidade tenta de novo
+    el.src = this.#trackUrl(name);   // trocar o src já recomeça do início
+    if (this.#musicOn()) this.#playEl(incoming);   // senão o #syncMusic dá o play quando o áudio liberar
     const t = ctx.currentTime, level = this.#gains.get(name) ?? 1;
     fade.gain.cancelScheduledValues(t);
     fade.gain.setValueAtTime(0, t);
@@ -289,13 +348,6 @@ export class Sfx {
     const next = () => { if (L.token === token) { L.token = null; this.#nextTrack(lane); } };
     el.ontimeupdate = () => { if (el.duration && el.duration - el.currentTime <= MUSIC_FADE) next(); };
     el.onended = next;
-  }
-
-  #pauseMusic(paused) {
-    for (const L of Object.values(this.#lanes)) {
-      const current = L.players[1 - L.slot].el;   // slot já aponta para o próximo
-      if (paused) current.pause(); else current.play().catch(() => {});
-    }
   }
 
   // ───────────── sons ─────────────
@@ -332,16 +384,18 @@ export class Sfx {
   }
 
   #onVisibility() {
+    const ctx = this.#ctx;
+    if (!ctx) return;
     if (document.hidden) {
       // em segundo plano: silencia e libera o sistema (e não deixa o <audio> mudo no "Tocando agora")
-      this.#ctx?.suspend().catch(() => {});
+      ctx.suspend().catch(() => {});
       this.#media?.pause();
-      this.#pauseMusic(true);
-    } else if (this.#ctx && !this.#muted) {
+    } else if (!this.#muted) {
       this.#resume();   // se o iOS recusar sem gesto, o próximo toque resolve
-      if (this.#media) this.#media.play().catch(() => {});
-      this.#pauseMusic(false);
+      this.#media?.play().catch(() => {});
     }
+    // ao voltar, a música recomeça quando o áudio estiver rodando (evento statechange) ou no próximo toque
+    this.#syncMusic();
   }
 
   // ───────────── reservas sintetizadas ─────────────
