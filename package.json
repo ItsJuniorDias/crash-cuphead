@@ -11,7 +11,8 @@
     "assets": "node scripts/generate-assets.mjs",
     "assets:all": "node scripts/generate-assets.mjs plane && node scripts/generate-assets.mjs --skip plane --ref art/raw/plane.png",
     "assets:plane-no-prop": "node scripts/generate-assets.mjs plane --edit \"Remove the propeller blades and their motion blur completely, keeping only the round nose spinner cap at the front.\"",
-    "audio": "node scripts/process-audio.mjs"
+    "audio": "node scripts/process-audio.mjs",
+    "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

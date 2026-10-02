@@ -29,7 +29,7 @@ async function main() {
   });
 
   game.start();
-  if (import.meta.env.DEV) window.__bb = { game, world, textures, sfx };   // inspeção no console (só em dev)
+  if (import.meta.env.DEV) window.__bb = { game, world, textures, sfx, hud };   // inspeção no console (só em dev)
 
   // ?audiodebug na URL: mostra o estado do áudio na tela (útil para testar no celular)
   if (new URLSearchParams(location.search).has('audiodebug')) {
