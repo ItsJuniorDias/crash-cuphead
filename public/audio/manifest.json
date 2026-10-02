@@ -3,7 +3,9 @@
     "file": "tick.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 0.442
+    "duration": 0.442,
+    "lufs": -16,
+    "target": -15
   },
   "click": {
     "file": "click.mp3",
@@ -15,78 +17,104 @@
     "file": "bet.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 0.901
+    "duration": 0.901,
+    "lufs": -17.7,
+    "target": -16
   },
   "cashout": {
     "file": "cashout.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 2.263
+    "duration": 2.263,
+    "lufs": -18.4,
+    "target": -15
   },
   "bigwin": {
     "file": "bigwin.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 4.586
+    "duration": 4.586,
+    "lufs": -15.5,
+    "target": -15
   },
   "fall": {
     "file": "fall.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 1.2
+    "duration": 1.2,
+    "lufs": -16.5,
+    "target": -16
   },
   "explosion": {
     "file": "explosion.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 2.143
+    "duration": 2.143,
+    "lufs": -14.9,
+    "target": -13
   },
   "owl": {
     "file": "owl.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 0.914
+    "duration": 0.914,
+    "lufs": -17.5,
+    "target": -17
   },
   "engine": {
     "file": "engine.mp3",
     "kind": "loop",
     "loop": true,
-    "duration": 15
+    "duration": 15,
+    "lufs": -18.4,
+    "target": -18
   },
   "projector": {
     "file": "projector.mp3",
     "kind": "loop",
     "loop": true,
-    "duration": 30
+    "duration": 30,
+    "lufs": -24.5,
+    "target": -24
   },
   "crickets": {
     "file": "crickets.mp3",
     "kind": "loop",
     "loop": true,
-    "duration": 30
+    "duration": 30,
+    "lufs": -22.4,
+    "target": -22
   },
   "takeoff": {
     "file": "takeoff.mp3",
     "kind": "shot",
     "loop": false,
-    "duration": 1.616
+    "duration": 1.616,
+    "lufs": -15.4,
+    "target": -15
   },
   "musicDay": {
     "file": "musicDay.mp3",
     "kind": "music",
     "loop": true,
-    "duration": 65.79
+    "duration": 65.79,
+    "lufs": -20.4,
+    "target": -20
   },
   "musicDay2": {
     "file": "musicDay2.mp3",
     "kind": "music",
     "loop": true,
-    "duration": 95.985
+    "duration": 95.985,
+    "lufs": -20.5,
+    "target": -20
   },
   "musicNight": {
     "file": "musicNight.mp3",
     "kind": "music",
     "loop": true,
-    "duration": 94.724
+    "duration": 94.724,
+    "lufs": -21.5,
+    "target": -21
   }
 }

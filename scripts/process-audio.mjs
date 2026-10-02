@@ -11,7 +11,8 @@
  * Requer ffmpeg/ffprobe no PATH.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync, rmSync, mkdtempSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,7 +56,10 @@ function loudness(file) {
 }
 
 const manifest = {};
-const tmp = path.join(OUT, '.tmp.wav');
+// temporários fora de public/ (senão uma execução que falha os levaria para o build)
+const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'bb-audio-'));
+const tmp = path.join(tmpDir, 'tmp.wav');
+process.on('SIGINT', () => { rmSync(tmpDir, { recursive: true, force: true }); process.exit(130); });
 let done = 0;
 
 for (const s of SOUNDS) {
@@ -95,12 +99,18 @@ for (const s of SOUNDS) {
 
   const after = loudness(path.join(OUT, outFile));
   const duration = probe(path.join(OUT, outFile));
-  manifest[s.name] = { file: outFile, kind: s.kind, loop: s.kind !== 'shot', duration: +duration.toFixed(3) };
+  // registra o volume real: o jogo compensa se o limitador deixou o som abaixo do alvo
+  manifest[s.name] = { file: outFile, kind: s.kind, loop: s.kind !== 'shot', duration: +duration.toFixed(3),
+    ...(after.I > -60 ? { lufs: +after.I.toFixed(1), target: s.target } : {}) };   // curto demais para medir: sem compensação
+  const miss = after.I - s.target;
+  if (Number.isFinite(after.I) && after.I > -60 && Math.abs(miss) > 1) {
+    console.warn(`  aviso: ${s.name} saiu com ${after.I.toFixed(1)} LUFS (alvo ${s.target}); o jogo compensa até +${(20 * Math.log10(1.4)).toFixed(1)} dB`);
+  }
   console.log(`ok → public/audio/${outFile}  ${duration.toFixed(2)} s  ${after.I.toFixed(1)} LUFS  pico ${after.peak.toFixed(1)} dBFS  ${(statSync(path.join(OUT, outFile)).size / 1024).toFixed(0)} KB`);
   done++;
 }
 
-for (const f of [tmp, `${tmp}.wav`]) rmSync(f, { force: true });
+rmSync(tmpDir, { recursive: true, force: true });
 
 // mantém no manifest o que não foi reprocessado desta vez
 const manifestPath = path.join(OUT, 'manifest.json');

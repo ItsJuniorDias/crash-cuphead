@@ -2,14 +2,19 @@
 // versões sintetizadas de reserva para qualquer som que ainda não exista.
 //
 // Celular:
-// - iOS/Android só liberam áudio dentro de um gesto (toque/clique/tecla). Destravamos no primeiro
-//   gesto em QUALQUER lugar da página e retomamos sempre que o sistema suspender o áudio.
+// - iOS/Android só liberam áudio dentro de um gesto (soltar o toque/clique/tecla). Destravamos no
+//   primeiro gesto em QUALQUER lugar da página e retomamos sempre que o sistema suspender o áudio.
 // - No iPhone, a chave de silêncio corta o Web Audio. Pedimos a sessão de "reprodução"
-//   (navigator.audioSession, iOS 17+) e, nos mais antigos, tocamos um <audio> mudo em loop.
-// - Os arquivos são baixados já no carregamento; a decodificação acontece quando o áudio destrava.
+//   (navigator.audioSession, iOS 17+) ou, nos mais antigos, tocamos um <audio> mudo em loop.
+//   No mudo do jogo a sessão é devolvida, para não interromper a música de outros apps.
+// - Efeitos e loops são decodificados (curtos); as músicas tocam em streaming (<audio> ligado ao
+//   Web Audio), que gasta poucos MB em vez de ~100 MB de áudio decodificado.
+// - Com o áudio parado (suspenso/interrompido), sons de jogo são descartados, não acumulados:
+//   senão tudo tocaria de uma vez quando ele voltasse.
 
 const AUDIO_DIR = `${import.meta.env.BASE_URL}audio/`;
-const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'];
+// pointerdown não conta como gesto para o Chrome do Android: só eventos de "soltar"
+const GESTURES = ['pointerup', 'touchend', 'click', 'keydown'];
 
 /** Volume de cada som (os arquivos já vêm normalizados; aqui é só o mix). */
 const MIX = {
@@ -21,6 +26,7 @@ const MUSIC_FADE = 1.5;     // segundos de cross-fade entre uma faixa e a próxi
 // playlists: o dia alterna duas faixas (menos repetição); a noite repete uma
 const PLAYLISTS = { day: ['musicDay', 'musicDay2'], night: ['musicNight'] };
 const LOOP_FADE = 0.03;     // segundos de cross-fade aplicados na emenda dos loops, já decodificados
+const MAX_BOOST = 1.4;      // compensação máxima quando o limitador deixou um som abaixo do alvo
 
 const smoothstep = (x, a, b) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -29,12 +35,15 @@ export class Sfx {
   #ctx = null;
   #master = null;
   #bus = {};                 // sfx / ambience / music
-  #raw = new Map();          // nome → { bytes, kind } baixados antes de o áudio destravar
+  #manifest = {};
+  #raw = new Map();          // nome → { bytes, kind, gain } até ser decodificado (depois os bytes são liberados)
   #buffers = new Map();      // nome → AudioBuffer pronto
+  #gains = new Map();        // nome → compensação de volume vinda do manifest
   #loops = {};               // nome → { src, gain } tocando
-  #lanes = {};               // playlist → { gain, i, nextAt, timer }
+  #lanes = {};               // playlist → { gain, players: [{ el, fade }], tracks, slot, i, token }
   #synthEngine = null;
   #primed = false;
+  #resuming = false;
   #media = null;
   #owlDone = false;
 
@@ -49,12 +58,22 @@ export class Sfx {
   set muted(value) {
     this.#muted = value;
     if (this.#master) this.#master.gain.setTargetAtTime(value ? 0 : 1, this.#ctx.currentTime, 0.02);
+    if (value) {
+      // devolve o áudio do aparelho: a música de outros apps volta a tocar
+      this.#media?.pause();
+      try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch { /* iOS < 17 */ }
+    } else if (this.#ctx) {
+      this.#playThroughSilentSwitch();   // o des-mudo vem de um clique, então estamos num gesto
+      this.#resume();
+    }
   }
 
   /** Estado do áudio, para depuração (`?audiodebug` na URL mostra na tela). */
   get state() {
     if (!this.#ctx) return 'sem contexto';
-    return `${this.#ctx.state} · ${this.#buffers.size}/${this.#raw.size} sons`;
+    const total = Object.values(this.#manifest).filter((e) => e.kind !== 'music').length;
+    const lanes = Object.keys(this.#lanes).length;
+    return `${this.#ctx.state} · ${this.#buffers.size}/${total} sons · música ${lanes ? 'tocando' : '—'}`;
   }
 
   /** Precisa rodar dentro de um gesto do usuário; pode ser chamado quantas vezes for. */
@@ -63,7 +82,7 @@ export class Sfx {
       if (!this.#ctx) this.#create();
       const ctx = this.#ctx;
       if (!ctx) return;
-      if (ctx.state !== 'running') ctx.resume().catch(() => {});
+      this.#resume();
       if (!this.#primed) {
         // iOS: tocar um buffer vazio dentro do gesto destrava a saída de som
         const src = ctx.createBufferSource();
@@ -72,7 +91,8 @@ export class Sfx {
         src.start(0);
         this.#primed = true;
       }
-      this.#playThroughSilentSwitch();
+      if (!this.#muted) this.#playThroughSilentSwitch();
+      this.#startMusic();   // <audio> só pode começar dentro de um gesto
       this.#decodeAll();
     } catch { /* sem áudio */ }
   }
@@ -129,9 +149,13 @@ export class Sfx {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const ctx = new AC();
+    // limitador de segurança no fim da cadeia: vários sons fortes juntos não estouram
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20;
+    limiter.attack.value = 0.003; limiter.release.value = 0.25;
     const master = ctx.createGain();
     master.gain.value = this.#muted ? 0 : 1;
-    master.connect(ctx.destination);
+    master.connect(limiter).connect(ctx.destination);
     for (const name of ['sfx', 'ambience', 'music']) {
       const g = ctx.createGain();
       g.connect(master);
@@ -141,36 +165,53 @@ export class Sfx {
     this.#master = master;
   }
 
+  #resume() {
+    const ctx = this.#ctx;
+    if (!ctx || ctx.state === 'running') return;
+    this.#resuming = true;
+    ctx.resume().catch(() => {}).finally(() => { this.#resuming = false; });
+  }
+
+  /** Áudio tocando (ou destravando neste gesto). Fora disso, sons de jogo são descartados. */
+  #live() {
+    const ctx = this.#ctx;
+    return !!ctx && (ctx.state === 'running' || this.#resuming);
+  }
+
   async #prefetch() {
-    const manifest = await fetch(`${AUDIO_DIR}manifest.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const entries = Object.entries(manifest);
-    // efeitos e ambiente primeiro; as músicas (maiores) depois
-    for (const group of [entries.filter(([, e]) => e.kind !== 'music'), entries.filter(([, e]) => e.kind === 'music')]) {
-      await Promise.all(group.map(async ([name, entry]) => {
-        try {
-          const res = await fetch(`${AUDIO_DIR}${entry.file}`);
-          if (res.ok) this.#raw.set(name, { bytes: await res.arrayBuffer(), kind: entry.kind });
-        } catch { /* esse som fica com a versão sintetizada (ou sem música) */ }
-      }));
-      if (this.#ctx) this.#decodeAll();
+    this.#manifest = await fetch(`${AUDIO_DIR}manifest.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    for (const [name, e] of Object.entries(this.#manifest)) {
+      // o limitador pode ter deixado o arquivo abaixo do alvo: compensa no volume (com teto)
+      if (e.lufs > -60 && Number.isFinite(e.target)) this.#gains.set(name, Math.min(MAX_BOOST, 10 ** ((e.target - e.lufs) / 20)));
     }
+    // efeitos e loops são baixados e decodificados; músicas vão em streaming (só a URL)
+    await Promise.all(Object.entries(this.#manifest).filter(([, e]) => e.kind !== 'music').map(async ([name, entry]) => {
+      try {
+        const res = await fetch(`${AUDIO_DIR}${entry.file}`);
+        if (res.ok) { this.#raw.set(name, { bytes: await res.arrayBuffer(), kind: entry.kind }); this.#decodeAll(); }
+      } catch { /* esse som fica com a versão sintetizada */ }
+    }));
+    this.#decodeAll();
   }
 
   #decodeAll() {
     const ctx = this.#ctx;
     if (!ctx) return;
-    for (const [name, { bytes, kind }] of this.#raw) {
-      if (this.#buffers.has(name) || bytes.decoding) continue;
-      bytes.decoding = true;
-      new Promise((resolve, reject) => ctx.decodeAudioData(bytes.slice(0), resolve, reject))
+    for (const [name, item] of this.#raw) {
+      if (item.decoding) continue;
+      item.decoding = true;
+      // a cópia (slice) é porque decodeAudioData consome o ArrayBuffer e queremos poder tentar de novo
+      new Promise((resolve, reject) => ctx.decodeAudioData(item.bytes.slice(0), resolve, reject))
         .then((buf) => {
-          this.#buffers.set(name, kind === 'loop' ? seamlessLoop(ctx, buf, LOOP_FADE) : trimEdges(ctx, buf));
-          if (kind === 'loop') this.#startLoop(name);
-          if (kind === 'music') this.#startMusic();
+          this.#buffers.set(name, item.kind === 'loop' ? seamlessLoop(ctx, buf, LOOP_FADE) : trimEdges(ctx, buf));
+          this.#raw.delete(name);   // libera os bytes comprimidos
+          if (item.kind === 'loop') this.#startLoop(name);
         })
-        .catch(() => { bytes.decoding = false; });
+        .catch(() => { item.decoding = false; });
     }
-    if (!this.#raw.has('engine') && !this.#synthEngine) this.#startSynthEngine();
+    // motor sintetizado só se não existir motor gravado (nem baixado, nem decodificado)
+    const hasEngine = this.#raw.has('engine') || this.#buffers.has('engine') || this.#manifest.engine;
+    if (!hasEngine && !this.#synthEngine) this.#startSynthEngine();
   }
 
   #startLoop(name) {
@@ -179,68 +220,104 @@ export class Sfx {
     const src = ctx.createBufferSource(), gain = ctx.createGain();
     src.buffer = buffer;
     src.loop = true;
-    // projetor sempre ligado (bem baixo); motor, grilos e música começam mudos e o update() abre
-    gain.gain.value = name === 'projector' ? MIX.projector : 0;
-    const bus = name === 'engine' ? 'sfx' : 'ambience';
-    src.connect(gain).connect(this.#bus[bus]);
+    // projetor sempre ligado (bem baixo); motor e grilos começam mudos e o update() abre
+    gain.gain.value = name === 'projector' ? MIX.projector * (this.#gains.get(name) ?? 1) : 0;
+    src.connect(gain).connect(this.#bus[name === 'engine' ? 'sfx' : 'ambience']);
     // começa num ponto aleatório para os loops não soarem sempre iguais
     src.start(0, Math.random() * buffer.duration);
     this.#loops[name] = { src, gain };
-    if (name === 'engine' && this.#synthEngine) { this.#synthEngine.gain.gain.value = 0; }
+    if (name === 'engine' && this.#synthEngine) this.#stopSynthEngine();
   }
 
-  /** Liga as playlists de dia e de noite assim que houver alguma faixa decodificada. */
+  // ───────────── música em streaming ─────────────
+
+  /**
+   * Cada playlist tem dois <audio> que se revezam (um sai enquanto o outro entra, com cross-fade).
+   * Os dois são "abençoados" com play() dentro do gesto: depois disso o iOS deixa trocar de faixa sozinho.
+   */
   #startMusic() {
-    for (const lane of Object.keys(PLAYLISTS)) {
-      if (this.#lanes[lane] || !PLAYLISTS[lane].some((n) => this.#buffers.has(n))) continue;
-      const gain = this.#ctx.createGain();
+    const ctx = this.#ctx;
+    for (const [lane, names] of Object.entries(PLAYLISTS)) {
+      const tracks = names.filter((n) => this.#manifest[n]);
+      if (this.#lanes[lane] || !tracks.length) continue;
+      const gain = ctx.createGain();
       gain.gain.value = lane === 'day' ? MIX.music : 0;   // o update() faz a passagem dia → noite
       gain.connect(this.#bus.music);
-      this.#lanes[lane] = { gain, i: 0, nextAt: 0, timer: 0 };
-      this.#queueTrack(lane);
+      const players = [0, 1].map(() => {
+        const el = new Audio();
+        el.preload = 'auto';
+        el.setAttribute('playsinline', '');
+        const fade = ctx.createGain();
+        fade.gain.value = 0;
+        ctx.createMediaElementSource(el).connect(fade).connect(gain);
+        return { el, fade };
+      });
+      const L = { gain, players, tracks, slot: 0, i: 0, token: null };
+      this.#lanes[lane] = L;
+      // abençoa o segundo player agora (gesto) e começa a primeira faixa no primeiro
+      const spare = players[1].el;
+      spare.src = `${AUDIO_DIR}${this.#manifest[tracks[tracks.length > 1 ? 1 : 0]].file}`;
+      spare.play().then(() => spare.pause()).catch(() => {});
+      this.#nextTrack(lane);
     }
   }
 
-  /**
-   * Agenda a próxima faixa da playlist no relógio do áudio, entrando MUSIC_FADE segundos antes do
-   * fim da atual (cross-fade). Assim finais musicais nunca viram uma emenda dura de loop.
-   */
-  #queueTrack(lane) {
+  #nextTrack(lane) {
     const ctx = this.#ctx, L = this.#lanes[lane];
-    const names = PLAYLISTS[lane].filter((n) => this.#buffers.has(n));
-    if (!names.length) return;
-    const buffer = this.#buffers.get(names[L.i++ % names.length]);
-    const src = ctx.createBufferSource(), fade = ctx.createGain();
-    const t0 = Math.max(ctx.currentTime + 0.05, L.nextAt), end = t0 + buffer.duration;
-    src.buffer = buffer;
-    fade.gain.setValueAtTime(0, t0);
-    fade.gain.linearRampToValueAtTime(1, t0 + MUSIC_FADE);
-    fade.gain.setValueAtTime(1, end - MUSIC_FADE);
-    fade.gain.linearRampToValueAtTime(0, end);
-    src.connect(fade).connect(L.gain);
-    src.start(t0);
-    src.stop(end + 0.05);
-    L.nextAt = end - MUSIC_FADE;
-    // agenda a seguinte ~3 s antes de precisar dela (com o áudio suspenso o relógio para, então reconfere)
-    clearTimeout(L.timer);
-    L.timer = setTimeout(() => this.#queueTrack(lane), Math.max(250, (L.nextAt - ctx.currentTime - 3) * 1000));
+    const incoming = L.players[L.slot], outgoing = L.players[1 - L.slot];
+    L.slot = 1 - L.slot;
+    const name = L.tracks[L.i++ % L.tracks.length];
+    const { el, fade } = incoming;
+    el.src = `${AUDIO_DIR}${this.#manifest[name].file}`;   // trocar o src já recomeça do início
+    el.play().catch(() => {});   // se o sistema recusar, o próximo gesto/visibilidade tenta de novo
+    const t = ctx.currentTime, level = this.#gains.get(name) ?? 1;
+    fade.gain.cancelScheduledValues(t);
+    fade.gain.setValueAtTime(0, t);
+    fade.gain.linearRampToValueAtTime(level, t + MUSIC_FADE);
+    // a faixa que sai desce no mesmo tempo e pausa
+    outgoing.fade.gain.cancelScheduledValues(t);
+    outgoing.fade.gain.setValueAtTime(outgoing.fade.gain.value, t);
+    outgoing.fade.gain.linearRampToValueAtTime(0, t + MUSIC_FADE);
+    const old = outgoing.el;
+    // (depois da troca, o que toca é players[1 - slot]; só pausa se `old` não voltou a ser o atual)
+    setTimeout(() => { if (L.players[1 - L.slot].el !== old) old.pause(); }, (MUSIC_FADE + 0.2) * 1000);
+    // perto do fim, chama a próxima. Cada faixa tem a sua ficha: o player que está saindo para de
+    // vigiar o próprio fim (senão dispararia uma segunda troca e cortaria a faixa nova).
+    old.ontimeupdate = old.onended = null;
+    const token = {};
+    L.token = token;
+    const next = () => { if (L.token === token) { L.token = null; this.#nextTrack(lane); } };
+    el.ontimeupdate = () => { if (el.duration && el.duration - el.currentTime <= MUSIC_FADE) next(); };
+    el.onended = next;
   }
+
+  #pauseMusic(paused) {
+    for (const L of Object.values(this.#lanes)) {
+      const current = L.players[1 - L.slot].el;   // slot já aponta para o próximo
+      if (paused) current.pause(); else current.play().catch(() => {});
+    }
+  }
+
+  // ───────────── sons ─────────────
 
   /** Toca um sample; devolve false se ele não existir (quem chamou usa a versão sintetizada). */
   #play(name, { delay = 0, rate = 1 } = {}) {
     const ctx = this.#ctx, buffer = this.#buffers.get(name);
     if (!ctx || !buffer) return false;
+    if (!this.#live()) return true;   // áudio parado: descarta (e não cai na versão sintetizada)
     const src = ctx.createBufferSource(), gain = ctx.createGain();
     src.buffer = buffer;
     src.playbackRate.value = rate;
-    gain.gain.value = MIX[name] ?? 0.6;
+    gain.gain.value = (MIX[name] ?? 0.6) * (this.#gains.get(name) ?? 1);
     src.connect(gain).connect(this.#bus.sfx);
     src.start(ctx.currentTime + delay);
     return true;
   }
 
   #playThroughSilentSwitch() {
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* iOS < 17 */ }
+    try {
+      if (navigator.audioSession) { navigator.audioSession.type = 'playback'; return; }   // iOS 17+: basta isso
+    } catch { /* segue para o truque antigo */ }
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     if (!isIOS) return;
     if (!this.#media) {
@@ -259,9 +336,11 @@ export class Sfx {
       // em segundo plano: silencia e libera o sistema (e não deixa o <audio> mudo no "Tocando agora")
       this.#ctx?.suspend().catch(() => {});
       this.#media?.pause();
-    } else if (this.#ctx) {
-      this.#ctx.resume().catch(() => {});   // se o iOS recusar sem gesto, o próximo toque resolve
+      this.#pauseMusic(true);
+    } else if (this.#ctx && !this.#muted) {
+      this.#resume();   // se o iOS recusar sem gesto, o próximo toque resolve
       if (this.#media) this.#media.play().catch(() => {});
+      this.#pauseMusic(false);
     }
   }
 
@@ -284,9 +363,21 @@ export class Sfx {
     this.#synthEngine = { osc, osc2, gain };
   }
 
+  /** O motor gravado chegou: o sintetizado sai em fade (sem estalo) e é desligado de vez. */
+  #stopSynthEngine() {
+    const { osc, osc2, gain } = this.#synthEngine, t = this.#ctx.currentTime;
+    gain.gain.cancelScheduledValues(t);
+    gain.gain.setValueAtTime(gain.gain.value, t);
+    gain.gain.setTargetAtTime(0, t, 0.05);
+    osc.stop(t + 0.3);
+    osc2.stop(t + 0.3);
+    osc.onended = () => gain.disconnect();
+    this.#synthEngine = null;
+  }
+
   #synthBoom() {
     const ctx = this.#ctx;
-    if (!ctx) return;
+    if (!this.#live()) return;
     const len = Math.floor(ctx.sampleRate * 1.2), buf = ctx.createBuffer(1, len, ctx.sampleRate), data = buf.getChannelData(0);
     for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len) ** 2.5;
     const src = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
@@ -302,7 +393,7 @@ export class Sfx {
 
   #tone(freq, dur, type, vol, when = 0) {
     const ctx = this.#ctx;
-    if (!ctx) return;
+    if (!this.#live()) return;
     const osc = ctx.createOscillator(), gain = ctx.createGain(), t0 = ctx.currentTime + when;
     osc.type = type; osc.frequency.value = freq;
     gain.gain.setValueAtTime(vol, t0);
@@ -350,7 +441,7 @@ function seamlessLoop(ctx, buf, fadeSeconds) {
   return out;
 }
 
-/** WAV de 0,1 s de silêncio (8 bits, 8 kHz), gerado na hora: usado no truque da chave de silêncio do iOS. */
+/** WAV de 0,1 s de silêncio (8 bits, 8 kHz), gerado na hora: usado no truque da chave de silêncio do iOS < 17. */
 function silentWavUrl() {
   const rate = 8000, n = 800, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
   const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
