@@ -27,11 +27,12 @@
  *
  * Requer OPENROUTER_API_KEY no ambiente ou no arquivo .env da raiz do projeto.
  */
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -88,12 +89,13 @@ const ASSETS = [
   { name: 'moon', bg: 'object', aspect: '1:1', prompt: 'A cartoon crescent moon, pale cream-yellow, with a sleepy friendly face on its inner curve: a closed eye, a small content smile and a brick-red cheek. Facing left like a letter C.' },
   { name: 'star', bg: 'object', aspect: '1:1', prompt: 'A single cartoon five-pointed star with slightly rounded tips, pale cream-yellow, no face.' },
   ...['mountains', 'hills', 'trees', 'ground', 'foreground'].map((n) => ({
-    name: `${n}Night`, bg: 'strip', aspect: '21:9', ref: false, base: n,
-    prompt: 'the same scenery at night, lit by moonlight: deep blue, slate and dark teal tones with soft pale-blue highlights along the top edges, windows and lamps may glow warm yellow.',
+    // halo limpa o brilho fora do contorno; na cerca (ground) ele abriria buracos nas ripas iluminadas
+    name: `${n}Night`, bg: 'strip', aspect: '21:9', ref: false, base: n, halo: n !== 'ground',
+    prompt: 'the same scenery at night, lit by moonlight: deep blue, slate and dark teal tones, with soft pale-blue moonlit highlights painted only INSIDE the black outlines (on the upper parts of each shape); nothing is drawn outside the outlines: no rim, glow, halo or outline of light around the shapes. Windows and lamps may glow warm yellow.',
   })),
   ...['cloud1', 'cloud2'].map((n) => ({
     name: `${n}Night`, bg: 'object', aspect: '4:3', base: n, halo: true,   // o luar vem com brilho por fora do contorno
-    prompt: 'the same cloud at night: dim blue-grey lit by moonlight, with a soft pale-blue rim, same face if it has one.',
+    prompt: 'the same cloud at night: dim blue-grey lit by moonlight, with soft pale-blue highlights painted only INSIDE the black outline (no glow or rim of light outside it), same face if it has one.',
   })),
 ];
 
@@ -145,10 +147,18 @@ if (opts.ref && !existsSync(path.resolve(opts.ref))) {
 }
 const ref = opts.ref ? await toDataUrl(path.resolve(opts.ref)) : null;
 
+/** Impressão digital da imagem crua de um asset: diz de qual versão da base uma variante foi pintada. */
+const rawHash = (name) => {
+  const p = path.join(RAW_DIR, `${name}.png`);
+  return existsSync(p) ? createHash('sha1').update(readFileSync(p)).digest('hex').slice(0, 12) : null;
+};
+const isStale = (a) => a.base && manifest[a.name]?.baseHash && manifest[a.name].baseHash !== rawHash(a.base);
+
 // instrução usada para tirar a hélice desenhada de um avião antigo (a hélice agora é animada à parte)
 const PLANE_NO_PROP = 'Remove the propeller blades and their motion blur completely, keeping only the round nose spinner cap at the front.';
 
 let spent = 0, failures = 0;
+const failed = new Set();   // assets que falharam nesta execução (não servem de base para variantes)
 for (const asset of selected) {
   const rawPath = path.join(RAW_DIR, `${asset.name}.png`);
   const outFile = `${asset.name}.png`;
@@ -177,36 +187,56 @@ for (const asset of selected) {
       if (failures) break;
       continue;
     }
+    if (isStale(asset)) {
+      console.warn(`• ${asset.name}: AVISO — '${asset.base}' mudou desde que esta variante foi pintada; o cross-fade vai desalinhar. Rode: npm run assets -- ${asset.name} --force`);
+      continue;
+    }
     console.log(`• ${asset.name}: já existe (use --force para regerar)`);
     continue;
   }
-  // base: repinta a imagem crua de outro asset (ex.: o céu do dia → pôr do sol / noite)
+  // base: repinta a imagem crua de outro asset (ex.: o céu do dia → pôr do sol / noite).
+  // A base precisa estar aprovada (no manifest) e não pode ter falhado nesta execução.
   const basePath = asset.base && path.join(RAW_DIR, `${asset.base}.png`);
-  if (basePath && !existsSync(basePath)) {
-    console.error(`• ${asset.name}: precisa de art/raw/${asset.base}.png; gere '${asset.base}' antes`);
-    failures++;
+  const baseMissing = basePath && (failed.has(asset.base) || !manifest[asset.base] || !existsSync(basePath));
+  if (baseMissing && !opts['dry-run']) {
+    console.error(`• ${asset.name}: precisa de '${asset.base}' gerado e aprovado; gere '${asset.base}' antes`);
+    failures++; failed.add(asset.name);
     continue;
   }
-  const useRef = basePath ? await toDataUrl(basePath) : asset.ref === false ? null : ref;
+  const useRef = basePath ? (baseMissing ? null : await toDataUrl(basePath)) : asset.ref === false ? null : ref;
   const prompt = basePath ? buildBasePrompt(asset) : buildPrompt(asset, !!useRef);
-  if (opts['dry-run']) { console.log(`\n── ${asset.name} (${asset.aspect}, ${asset.bg}${useRef ? ', com referência' : ''})\n${prompt}`); continue; }
+  if (opts['dry-run']) {
+    const note = basePath ? `, base: ${asset.base}${baseMissing ? ' (gerada antes nesta execução)' : ''}` : useRef ? ', com referência' : '';
+    console.log(`\n── ${asset.name} (${asset.aspect}, ${asset.bg}${note})\n${prompt}`);
+    continue;
+  }
 
   process.stdout.write(`• ${asset.name}: gerando… `);
   try {
     const { buffer, cost } = await generate(prompt, asset.aspect, useRef);
     spent += cost ?? 0;
     const raw = await sharp(buffer).png().toBuffer();
-    await writeFile(rawPath, raw);
-    await finish(asset, raw, outFile, MODEL, cost);
+    // uma imagem recusada nunca substitui o original de que as variantes foram pintadas
+    const pending = path.join(RAW_DIR, `${asset.name}.new.png`);
+    await writeFile(pending, raw);
+    await finish(asset, raw, outFile, MODEL, cost);   // valida (remoção de fundo) antes de substituir
+    await rename(pending, rawPath);
     if (asset.name === 'plane') {
       console.log('  confira a orientação em art/preview.png; se o nariz estiver à esquerda: npm run assets -- plane --rekey --flop');
     }
   } catch (err) {
-    failures++;
+    failures++; failed.add(asset.name);
     console.log('falhou');
     console.error(`  ${err.message}`);
+    if (existsSync(path.join(RAW_DIR, `${asset.name}.new.png`))) {
+      console.error(`  imagem recusada guardada em art/raw/${asset.name}.new.png (o original não foi tocado).`);
+      console.error(`  Para aceitá-la assim mesmo: renomeie para art/raw/${asset.name}.png e rode --rekey ${asset.name}`);
+    }
   }
 }
+
+const stale = ASSETS.filter(isStale).map((a) => a.name);
+if (stale.length) console.warn(`\nVariantes desatualizadas (a base mudou): ${stale.join(', ')}\n  npm run assets -- ${stale.join(' ')} --force`);
 
 if (!opts['dry-run']) {
   await writePreview();
@@ -250,7 +280,7 @@ function buildBasePrompt(asset) {
     `Repaint the attached image as ${asset.prompt}`,
     'Keep exactly the same composition, framing, shapes, outlines and hand-painted 1930s cartoon style; only change the time of day, the lighting and the colors.',
     // a variante precisa de fundo magenta para a remoção de fundo funcionar igual à original
-    asset.bg === 'opaque' ? '' : 'Keep the background a perfectly flat, uniform pure magenta (#FF00FF), exactly like the attached image: do not paint any sky, stars, glow or light into the background.',
+    asset.bg === 'opaque' ? '' : 'Keep the background a perfectly flat, uniform pure magenta (#FF00FF), exactly like the attached image: do not paint any sky, stars, glow or light into the background. Every shape must still end at its black ink outline exactly as in the attached image.',
     'No text, no letters, no watermark, no frame or border.',
   ].filter(Boolean).join('\n\n');
 }
@@ -308,6 +338,8 @@ async function finish(asset, raw, outFile, model, cost) {
   // a âncora da hélice só vale para avião SEM hélice desenhada: gerado com o prompt atual ou editado.
   // No --rekey, mantém o que já existia (um avião antigo com hélice desenhada continua sem âncora).
   if (asset.name === 'plane' && (!opts.rekey || manifest.plane?.propeller)) entry.propeller = await noseAnchor(image);
+  // de qual versão da base esta variante foi pintada (no --rekey a pintura é a mesma, então mantém)
+  if (asset.base) entry.baseHash = opts.rekey ? manifest[asset.name]?.baseHash ?? rawHash(asset.base) : rawHash(asset.base);
   if (asset.name === 'propeller') entry.frames = await writePropellerFrames(image);
   manifest[asset.name] = entry;
   await writeFile(MANIFEST, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -410,7 +442,7 @@ async function removeBackground(input, kind, { halo = false } = {}) {
   if (!magentaish) {
     const msg = `o fundo veio rgb(${key.join(',')}), não magenta`;
     // imagem nova com fundo errado não vira asset (um céu pintado taparia o jogo); no --rekey o usuário aceita conscientemente
-    if (!opts.rekey) throw new Error(`${msg}. Original salvo em art/raw/; rode de novo para regerar (ou --rekey para aceitar assim mesmo).`);
+    if (!opts.rekey) throw new Error(`${msg}. Rode de novo para regerar.`);
     console.warn(`\n  aviso: ${msg}; removendo só o fundo ligado às bordas.`);
   }
 
@@ -477,7 +509,8 @@ async function removeBackground(input, kind, { halo = false } = {}) {
   //     e que, misturado ao magenta, vira uma borda acinzentada. Remove o que for mais claro que a tinta
   //     e estiver ligado ao fundo, numa faixa estreita: a tinta segura a expansão para dentro do desenho.
   if (halo) {
-    const RADIUS = Math.max(6, Math.round(Math.max(w, h) * 0.03));
+    // faixa estreita nas faixas de cenário: capim e folhas sem contorno ficam a salvo
+    const RADIUS = Math.max(6, Math.round(Math.max(w, h) * (kind === 'strip' ? 0.012 : 0.03)));
     const luma = (i) => 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
     const depth = new Int16Array(N).fill(-1);
     let queue = [];

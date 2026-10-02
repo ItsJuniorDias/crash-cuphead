@@ -55,8 +55,12 @@ function crossfadeMaterial(mapA, mapB) {
     fragmentShader: /* glsl */ `
       uniform sampler2D mapA, mapB; uniform float uMix, uOpacity; varying vec2 vUv;
       void main() {
-        vec4 c = mix(texture2D(mapA, vUv), texture2D(mapB, vUv), uMix);
-        gl_FragColor = vec4(c.rgb, c.a * uOpacity);
+        // mistura pré-multiplicada: onde só uma das imagens tem desenho, a cor transparente
+        // da outra não "suja" o cross-fade
+        vec4 a = texture2D(mapA, vUv), b = texture2D(mapB, vUv);
+        float alpha = mix(a.a, b.a, uMix);
+        vec3 rgb = mix(a.rgb * a.a, b.rgb * b.a, uMix) / max(alpha, 1e-4);
+        gl_FragColor = vec4(rgb, alpha * uOpacity);
       }`,
   });
 }

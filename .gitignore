@@ -4,3 +4,4 @@ dist
 .DS_Store
 .claude/
 art/raw/*.prev.png
+art/raw/*.new.png

@@ -346,6 +346,6 @@ function debrisCanvas() {
 
 function dashCanvas() {
   const c = makeCanvas(32, 4), ctx = c.getContext('2d');
-  ctx.fillStyle = C.ink; ctx.fillRect(0, 0, 16, 4);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 16, 4);   // só o padrão: a cor vem do material
   return c;
 }
