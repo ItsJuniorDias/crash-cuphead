@@ -19,12 +19,12 @@ async function main() {
   game.addEventListener('phase', ({ detail }) => {
     world.onPhase(detail.phase);
     if (detail.phase === 'flying') sfx.takeoff();
-    if (detail.phase === 'crashed') sfx.boom();
+    if (detail.phase === 'crashed') sfx.crash();
   });
   game.addEventListener('countdown', () => sfx.tick());
   game.addEventListener('cashout', ({ detail }) => {
     world.coins();
-    sfx.cash();
+    sfx.cashout(detail.multiplier);
     hud.toast(`+${fmt(detail.win)} @ ${detail.multiplier.toFixed(2)}×`);
   });
 
@@ -46,7 +46,7 @@ async function main() {
     game.update(dt);
     world.update(game, dt, now / 1000);
     hud.update();
-    sfx.update(game);
+    sfx.update(game, world.tod);
   });
 }
 

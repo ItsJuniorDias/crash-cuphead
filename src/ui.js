@@ -15,12 +15,14 @@ export class Hud {
       history: $('history'), players: $('players'), toast: $('toast'), mute: $('mute'), reset: $('reset'),
     };
 
-    document.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => this.#quick(b.dataset.q)));
+    document.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { sfx.click(); this.#quick(b.dataset.q); }));
+    this.el.autoOn.addEventListener('change', () => sfx.click());
     this.el.main.addEventListener('click', () => this.primary());
-    this.el.reset.addEventListener('click', () => game.resetBalance());
+    this.el.reset.addEventListener('click', () => { sfx.click(); game.resetBalance(); });
     this.el.mute.addEventListener('click', () => {
       sfx.unlock();
       sfx.muted = !sfx.muted;
+      if (!sfx.muted) sfx.click();
       this.el.mute.textContent = sfx.muted ? '🔇 Muted' : '🔊 Sound';
     });
     window.addEventListener('keydown', (e) => {
@@ -38,11 +40,11 @@ export class Hud {
     switch (g.primaryAction) {
       case 'cashout': g.cashOut(); break;
       case 'cancel':
-      case 'cancelQueued': g.cancelBet(); break;
+      case 'cancelQueued': this.sfx.click(); g.cancelBet(); break;
       default: {
         const auto = this.el.autoOn.checked ? Math.max(1.01, +this.el.auto.value || 2) : null;
         const err = g.placeBet(+this.el.bet.value, auto);
-        if (err) this.toast(err); else this.sfx.tick();
+        if (err) { this.sfx.click(); this.toast(err); } else this.sfx.bet();
       }
     }
   }

@@ -1,0 +1,92 @@
+{
+  "tick": {
+    "file": "tick.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 0.442
+  },
+  "click": {
+    "file": "click.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 0.153
+  },
+  "bet": {
+    "file": "bet.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 0.901
+  },
+  "cashout": {
+    "file": "cashout.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 2.263
+  },
+  "bigwin": {
+    "file": "bigwin.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 4.586
+  },
+  "fall": {
+    "file": "fall.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 1.2
+  },
+  "explosion": {
+    "file": "explosion.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 2.143
+  },
+  "owl": {
+    "file": "owl.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 0.914
+  },
+  "engine": {
+    "file": "engine.mp3",
+    "kind": "loop",
+    "loop": true,
+    "duration": 15
+  },
+  "projector": {
+    "file": "projector.mp3",
+    "kind": "loop",
+    "loop": true,
+    "duration": 30
+  },
+  "crickets": {
+    "file": "crickets.mp3",
+    "kind": "loop",
+    "loop": true,
+    "duration": 30
+  },
+  "takeoff": {
+    "file": "takeoff.mp3",
+    "kind": "shot",
+    "loop": false,
+    "duration": 1.616
+  },
+  "musicDay": {
+    "file": "musicDay.mp3",
+    "kind": "music",
+    "loop": true,
+    "duration": 65.79
+  },
+  "musicDay2": {
+    "file": "musicDay2.mp3",
+    "kind": "music",
+    "loop": true,
+    "duration": 95.985
+  },
+  "musicNight": {
+    "file": "musicNight.mp3",
+    "kind": "music",
+    "loop": true,
+    "duration": 94.724
+  }
+}

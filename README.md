@@ -31,6 +31,16 @@ npm run assets:all              # gera tudo: avião primeiro, o resto com ele co
 - **Hélice animada:** o avião é gerado sem hélice e `propeller` é gerada à parte; o script cria 8 quadros (`propeller_0..7.png`, meia volta com cubo redondo) e detecta o nariz do avião (confira o "+" vermelho em `art/preview.png`). Um avião antigo com hélice desenhada é editado automaticamente pelo `assets:all`. No jogo a hélice acelera na decolagem, ganha um disco de borrão em alta rotação e sai voando na queda. Tamanho, posição, velocidade e borrão ficam em `PLANE` no `src/config.js`; os quadros podem ser trocados por desenhos feitos à mão.
 - Asset que não existir usa uma versão procedural desenhada em `src/textures.js`.
 
+## Som
+
+Sons e músicas do [Pixabay](https://pixabay.com) (Pixabay Content License: uso comercial sem crédito obrigatório). Os originais ficam em `art/audio-src/` (fontes em `art/audio-src/SOURCES.md`) e o jogo usa as versões tratadas em `public/audio/`:
+
+```bash
+npm run audio            # corta silêncio, normaliza volume e cria loops sem emenda (ffmpeg)
+```
+
+Para trocar ou adicionar um som, coloque o MP3 em `art/audio-src/` com o nome da tabela `SOUNDS` em `scripts/process-audio.mjs` e rode o comando. O mix (volume de cada som) fica em `MIX`, em `src/audio.js`; sons ausentes usam uma versão sintetizada.
+
 ## Estrutura
 
 | Arquivo | O quê |
